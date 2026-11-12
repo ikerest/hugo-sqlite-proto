@@ -70,6 +70,13 @@ Makefile            index · build · serve · check · clean
 4. Cambia la búsqueda para ordenar los resultados por número de coincidencias (sigue siendo una función pura).
 5. Despliega `public/` con `rsync` a tu VPS o con GitHub Pages. ¿Qué proceso corre en el servidor? (Ninguno de tuyos.)
 
+## Ejercicios resueltos (Iker Estebaranz Corcobado)
+
+1. **Post nuevo con etiqueta `sql`**: añadido `content/posts/consultas-sql.md` con `tags: [sql, sqlite, hugo]`. Al lanzar `make index` (o `make serve`), `tools/index.py` inserta las etiquetas en la tabla `tags` de SQLite y regenera `data/tags.json` con la consulta `Q_TAGS` (`GROUP BY tag`), por lo que el conteo en la portada se actualiza solo.
+2. **Borradores en la búsqueda (`--drafts`)**: `hugo server -D` enseña los posts con `draft: true`, pero el buscador no los encontraba porque `read_all()` en `tools/index.py` filtraba siempre `if not page["draft"]` antes de meterlos en SQLite. He añadido el parámetro `--drafts` a `tools/index.py` y la regla `make serve-drafts` en el `Makefile` para lanzar las dos cosas a la vez.
+3. **Tabla `words(url, n)` y conteo de palabras**: añadida la tabla `words` al esquema de SQLite en `tools/index.py`. Al leer cada fichero Markdown se calcula `len(text.split())`, se guarda en `words` y la consulta `Q_WORDS` exporta `data/words.json` con la suma total (`SUM(n)`) y el desglose por URL. Hugo lee `hugo.Data.words` para mostrar el total de palabras en `layouts/partials/footer.html` y, como aportación extra, las palabras de cada post junto a la fecha en `layouts/_default/single.html`.
+4. **Ordenar la búsqueda por coincidencias**: en `static/search.js` he añadido la función pura `countHits`, que cuenta cuántas veces aparecen los términos buscados en cada post usando `reduce`, y ordena una copia de los resultados (`[...posts.filter(...)].sort(...)`) de mayor a menor número de apariciones sin mutar el array original.
+
 ## Límites a propósito (KISS)
 
 `tools/index.py` entiende front matter YAML simple (`clave: valor` y `tags: [a, b]`); no TOML ni listas
