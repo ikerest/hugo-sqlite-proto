@@ -20,9 +20,18 @@ const haystack = post => normalize(`${post.title} ${post.tags.join(" ")} ${post.
 // Un post coincide si contiene TODOS los términos
 const matches = ts => post => ts.every(t => haystack(post).includes(t));
 
+// Cuenta el total de apariciones de los términos buscados en el post
+const countHits = ts => post => {
+  const h = haystack(post);
+  return ts.reduce((n, t) => n + (h.split(t).length - 1), 0);
+};
+
 const search = (posts, query) => {
   const ts = terms(query);
-  return ts.length ? posts.filter(matches(ts)) : [];
+  const hits = countHits(ts);
+  return ts.length
+    ? [...posts.filter(matches(ts))].sort((a, b) => hits(b) - hits(a))
+    : [];
 };
 
 // --- efectos (DOM) ----------------------------------------------------------
