@@ -29,6 +29,7 @@ CONTENT = Path("content")
 DB = Path("build/site.db")
 OUT_SEARCH = Path("static/search.json")
 OUT_TAGS = Path("data/tags.json")
+OUT_WORDS = Path("data/words.json")
 
 SCHEMA = """
 CREATE TABLE posts (
@@ -42,6 +43,10 @@ CREATE TABLE tags (
   url TEXT NOT NULL REFERENCES posts(url),
   tag TEXT NOT NULL,
   PRIMARY KEY (url, tag)
+);
+CREATE TABLE words (
+  url TEXT PRIMARY KEY REFERENCES posts(url),
+  n   INTEGER NOT NULL
 );
 """
 
@@ -63,6 +68,14 @@ Q_TAGS = """
 SELECT json_group_array(json_object('tag', tag, 'total', total))
 FROM (
   SELECT tag, COUNT(*) AS total FROM tags GROUP BY tag ORDER BY total DESC, tag
+)
+"""
+
+# Agregación: total de palabras del sitio y desglose por post.
+Q_WORDS = """
+SELECT json_object(
+  'total', COALESCE((SELECT SUM(n) FROM words), 0),
+  'posts', COALESCE((SELECT json_group_object(url, n) FROM words), json('{}'))
 )
 """
 
@@ -129,6 +142,7 @@ def read_page(path):
         "tags": tags if isinstance(tags, list) else [tags],
         "draft": meta.get("draft", False) is True,
         "text": text,
+        "words": len(text.split()),
     }
 
 
@@ -151,6 +165,8 @@ def build_db(pages):
     con.executemany(
         "INSERT OR IGNORE INTO tags(url, tag) VALUES (?, ?)",
         [(p["url"], t) for p in pages for t in p["tags"]])
+    con.executemany(
+        "INSERT INTO words(url, n) VALUES (:url, :words)", pages)
     con.commit()
     return con
 
@@ -168,8 +184,9 @@ def main():
     con = build_db(pages)
     export(con, Q_SEARCH, OUT_SEARCH)
     export(con, Q_TAGS, OUT_TAGS)
+    export(con, Q_WORDS, OUT_WORDS)
     con.close()
-    print(f"index: {len(pages)} páginas → {OUT_SEARCH}, {OUT_TAGS}")
+    print(f"index: {len(pages)} páginas → {OUT_SEARCH}, {OUT_TAGS}, {OUT_WORDS}")
 
 
 if __name__ == "__main__":
