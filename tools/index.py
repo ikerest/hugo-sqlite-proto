@@ -132,9 +132,10 @@ def read_page(path):
     }
 
 
-def read_all():
+def read_all(include_drafts=False):
     files = (p for p in sorted(CONTENT.rglob("*.md")) if p.name != "_index.md")
-    return [page for page in map(read_page, files) if not page["draft"]]
+    return [page for page in map(read_page, files)
+            if include_drafts or not page["draft"]]
 
 
 # --- efectos: disco y SQL ----------------------------------------------------
@@ -162,7 +163,8 @@ def export(con, query, out):
 def main():
     if not CONTENT.is_dir():
         sys.exit("index.py: ejecútalo desde la raíz del repo (make index)")
-    pages = read_all()
+    include_drafts = "--drafts" in sys.argv[1:]
+    pages = read_all(include_drafts=include_drafts)
     con = build_db(pages)
     export(con, Q_SEARCH, OUT_SEARCH)
     export(con, Q_TAGS, OUT_TAGS)
