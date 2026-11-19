@@ -12,9 +12,11 @@ Chyrp Lite guarda cada entrada en dos tablas:
   posts(id, feather, clean, url, pinned, status, user_id, created_at, updated_at)
   post_attributes(post_id, name, value)   ← título, cuerpo y etiquetas (EAV)
 
+Y las páginas estáticas en una sola tabla:
+  pages(id, title, body, public, show_in_list, list_order, clean, url,
+        user_id, parent_id, created_at, updated_at)
+
 Solo biblioteca estándar. Reutiliza split_front_matter y parse_meta de index.py.
-Límites (a propósito, KISS): solo entradas de blog (no `pages`), etiquetas
-con letras y números, y el cuerpo se copia tal cual (Chyrp Lite entiende Markdown).
 
 Uso:
   python3 tools/migrar.py --destino ~/chyrp-datos/copia.sqlite --simulacro
@@ -113,10 +115,37 @@ def transformar(entrada, user_id, ahora):
         },
     }
 
+
+def transformar_pagina(pagina, user_id, ahora):
+    """Página del prototipo (content/about.md) → fila para `pages` en Chyrp Lite."""
+    slug = slugify(pagina["slug"])
+    visible = 0 if pagina["draft"] else 1
+    return {
+        "title": pagina["titulo"],
+        "body": pagina["cuerpo"],
+        "public": visible,
+        "show_in_list": visible,
+        "list_order": 0,
+        "clean": slug,
+        "url": slug,
+        "user_id": user_id,
+        "parent_id": 0,
+        "created_at": fecha_chyrp(pagina["fecha"], ahora),
+        "updated_at": SQL_DATETIME_ZERO,
+    }
+
 # --- efectos: disco y SQL ----------------------------------------------------
 
 def extraer(origen):
     ficheros = (p for p in sorted(Path(origen).rglob("*.md")) if p.name != "_index.md")
+    return [leer_entrada(p) for p in ficheros]
+
+
+def extraer_paginas(raiz="content"):
+    carpeta = Path(raiz)
+    if not carpeta.is_dir():
+        return []
+    ficheros = (p for p in sorted(carpeta.glob("*.md")) if p.name != "_index.md")
     return [leer_entrada(p) for p in ficheros]
 
 
@@ -127,7 +156,7 @@ def comprobar_destino(destino):
     con = sqlite3.connect(destino)
     tablas = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     con.close()
-    if not {"posts", "post_attributes", "users"} <= tablas:
+    if not {"posts", "post_attributes", "pages", "users"} <= tablas:
         sys.exit(f"migrar.py: {destino} no parece una base de datos de Chyrp Lite")
 
 
@@ -174,9 +203,41 @@ def cargar(destino, filas, simulacro=False):
         con.close()
 
 
+def existe_pagina(con, url):
+    return con.execute("SELECT 1 FROM pages WHERE url = ?", (url,)).fetchone() is not None
+
+
+def insertar_pagina(con, fila):
+    columnas = list(fila)
+    cur = con.execute(
+        f"INSERT INTO pages({', '.join(columnas)}) VALUES ({', '.join('?' * len(columnas))})",
+        [fila[c] for c in columnas])
+    return cur.lastrowid
+
+
+def cargar_paginas(destino, filas, simulacro=False):
+    """Inserta las páginas que falten en `pages`. Devuelve [(estado, url)]."""
+    con = sqlite3.connect(destino)
+    try:
+        with con:
+            resultado = []
+            for fila in filas:
+                url = fila["url"]
+                if existe_pagina(con, url):
+                    resultado.append(("omitida", url))
+                    continue
+                if not simulacro:
+                    insertar_pagina(con, fila)
+                resultado.append(("simulada" if simulacro else "creada", url))
+            return resultado
+    finally:
+        con.close()
+
+
 def main():
     ap = argparse.ArgumentParser(description="Markdown (P1.1) → SQLite de Chyrp Lite")
     ap.add_argument("--origen", default="content/posts", help="carpeta con los .md")
+    ap.add_argument("--paginas", default="content", help="carpeta raíz con páginas sueltas (.md)")
     ap.add_argument("--destino", required=True, help="fichero .sqlite de Chyrp Lite (¡una COPIA!)")
     ap.add_argument("--autor", help="login del autor en Chyrp Lite (por defecto, el primer usuario)")
     ap.add_argument("--simulacro", action="store_true", help="muestra qué haría, sin escribir")
@@ -184,6 +245,7 @@ def main():
 
     comprobar_destino(args.destino)
     entradas = extraer(args.origen)
+    paginas = extraer_paginas(args.paginas)
     ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     con = sqlite3.connect(args.destino)
@@ -198,6 +260,15 @@ def main():
     nuevas = sum(1 for estado, _ in resultado if estado != "omitida")
     print(f"migrar: {len(entradas)} entradas leídas, {nuevas} nuevas, "
           f"{len(entradas) - nuevas} ya estaban")
+
+    if paginas:
+        filas_pag = [transformar_pagina(p, user_id, ahora) for p in paginas]
+        res_pag = cargar_paginas(args.destino, filas_pag, args.simulacro)
+        for estado, url in res_pag:
+            print(f"{estado:9} {url} (página)")
+        nuevas_pag = sum(1 for estado, _ in res_pag if estado != "omitida")
+        print(f"migrar páginas: {len(paginas)} páginas leídas, {nuevas_pag} nuevas, "
+              f"{len(paginas) - nuevas_pag} ya estaban")
 
 
 if __name__ == "__main__":

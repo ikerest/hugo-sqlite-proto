@@ -5,7 +5,14 @@ Ejecuta:  make test   (o: python3 -m unittest discover -s tools -v)
 """
 import unittest
 
-from migrar import SQL_DATETIME_ZERO, etiquetas_json, fecha_chyrp, slugify, transformar
+from migrar import (
+    SQL_DATETIME_ZERO,
+    etiquetas_json,
+    fecha_chyrp,
+    slugify,
+    transformar,
+    transformar_pagina,
+)
 
 ENTRADA = {
     "slug": "hola-hugo",
@@ -13,6 +20,15 @@ ENTRADA = {
     "fecha": "2026-10-27",
     "cuerpo": "Texto con **Markdown**.",
     "tags": ["hugo", "Árbol B"],
+    "draft": False,
+}
+
+PAGINA = {
+    "slug": "about",
+    "titulo": "Acerca de",
+    "fecha": "2026-10-27",
+    "cuerpo": "Este sitio es la continuación de la práctica.",
+    "tags": [],
     "draft": False,
 }
 
@@ -71,6 +87,30 @@ class TestTransformar(unittest.TestCase):
         # Misma entrada, mismo resultado, y la entrada original no cambia.
         self.assertEqual(self.fila, transformar(ENTRADA, 1, "2026-11-16 12:00:00"))
         self.assertEqual(ENTRADA["tags"], ["hugo", "Árbol B"])
+
+
+class TestTransformarPagina(unittest.TestCase):
+    def setUp(self):
+        self.fila = transformar_pagina(PAGINA, user_id=1, ahora="2026-11-16 12:00:00")
+
+    def test_columnas_de_pages(self):
+        self.assertEqual(self.fila["title"], "Acerca de")
+        self.assertEqual(self.fila["body"], "Este sitio es la continuación de la práctica.")
+        self.assertEqual(self.fila["clean"], "about")
+        self.assertEqual(self.fila["url"], "about")
+        self.assertEqual(self.fila["public"], 1)
+        self.assertEqual(self.fila["show_in_list"], 1)
+        self.assertEqual(self.fila["user_id"], 1)
+        self.assertEqual(self.fila["created_at"], "2026-10-27 00:00:00")
+        self.assertEqual(self.fila["updated_at"], SQL_DATETIME_ZERO)
+
+    def test_pagina_borrador(self):
+        borrador = transformar_pagina({**PAGINA, "draft": True}, 1, "ahora")
+        self.assertEqual(borrador["public"], 0)
+        self.assertEqual(borrador["show_in_list"], 0)
+
+    def test_es_pura(self):
+        self.assertEqual(self.fila, transformar_pagina(PAGINA, 1, "2026-11-16 12:00:00"))
 
 
 if __name__ == "__main__":
