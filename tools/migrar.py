@@ -21,6 +21,7 @@ Uso:
   python3 tools/migrar.py --destino ~/chyrp-datos/copia.sqlite
 """
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
@@ -38,7 +39,7 @@ SQL_DATETIME_ZERO = "1000-01-01 00:00:00"
 
 def slugify(texto):
     """'Árbol B' → 'arbol-b' (algo parecido al campo `clean` de Chyrp Lite)."""
-    sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
+    sin_tildes = unicodedata.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]+", "-", sin_tildes.lower()).strip("-")
 
 
@@ -51,15 +52,27 @@ def fecha_chyrp(valor, por_defecto):
     return f"{dia} {hora_min or '00:00'}:{seg or '00'}"
 
 
+def _par_etiqueta(nombre):
+    """Replica Tags::prepare_tags de Chyrp Lite para etiquetas normales y numéricas."""
+    texto = str(nombre).strip()
+    es_numero = bool(re.fullmatch(r"[+-]?\d+(?:\.\d+)?", texto))
+    clave = f"\ufe0e{texto}" if es_numero else texto
+    slug = slugify(texto)
+    limpio = slug if re.search(r"[^-0-9]", slug) else hashlib.md5(clave.encode("utf-8")).hexdigest()
+    return clave, limpio
+
+
 def etiquetas_json(nombres):
     """['sql', 'Árbol B'] → '{"sql":"sql","\\u00c1rbol B":"arbol-b"}'.
 
     Es el formato exacto con el que el módulo Tags guarda las etiquetas en
     post_attributes: un objeto JSON {nombre: slug}. Sin etiquetas guarda '[]'.
+    Para etiquetas numéricas ('2026'), Chyrp Lite antepone U+FE0E a la clave
+    y usa el hash MD5 como slug.
     """
     if not nombres:
         return "[]"
-    asociacion = {nombre: slugify(nombre) for nombre in nombres}
+    asociacion = dict(_par_etiqueta(nombre) for nombre in nombres)
     # PHP escribe "/" como "\/" y Python no: igualamos los bytes.
     return json.dumps(asociacion, separators=(",", ":")).replace("/", "\\/")
 
