@@ -83,6 +83,15 @@ class TestTransformar(unittest.TestCase):
         borrador = transformar({**ENTRADA, "draft": True}, 1, "ahora")
         self.assertEqual(borrador["post"]["status"], "draft")
 
+    def test_autor_en_front_matter(self):
+        con_autor = transformar(
+            {**ENTRADA, "autor": "fenix"},
+            user_id=1,
+            ahora="2026-11-16 12:00:00",
+            autores={"iker": 1, "fenix": 2},
+        )
+        self.assertEqual(con_autor["post"]["user_id"], 2)
+
     def test_es_pura(self):
         # Misma entrada, mismo resultado, y la entrada original no cambia.
         self.assertEqual(self.fila, transformar(ENTRADA, 1, "2026-11-16 12:00:00"))

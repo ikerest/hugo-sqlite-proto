@@ -91,12 +91,26 @@ def leer_entrada(path):
         "cuerpo": cuerpo.strip(),
         "tags": tags if isinstance(tags, list) else [tags],
         "draft": meta.get("draft", False) is True,
+        "autor": str(meta.get("author", "")).strip(),
     }
 
 
-def transformar(entrada, user_id, ahora):
+def resolver_autor(entrada, user_id, autores=None):
+    """Devuelve el id del autor del front matter si existe en `autores`, o `user_id`."""
+    autor = entrada.get("autor")
+    if not autor:
+        return user_id
+    if isinstance(autor, int):
+        return autor
+    if isinstance(autores, dict) and autor in autores:
+        return autores[autor]
+    return user_id
+
+
+def transformar(entrada, user_id, ahora, autores=None):
     """Entrada del prototipo → filas para Chyrp Lite. Sin disco ni SQL."""
     slug = slugify(entrada["slug"])
+    uid = resolver_autor(entrada, user_id, autores)
     return {
         "post": {
             "feather": "text",
@@ -104,7 +118,7 @@ def transformar(entrada, user_id, ahora):
             "url": slug,
             "pinned": 0,
             "status": "draft" if entrada["draft"] else "public",
-            "user_id": user_id,
+            "user_id": uid,
             "created_at": fecha_chyrp(entrada["fecha"], ahora),
             "updated_at": SQL_DATETIME_ZERO,
         },
@@ -116,10 +130,11 @@ def transformar(entrada, user_id, ahora):
     }
 
 
-def transformar_pagina(pagina, user_id, ahora):
+def transformar_pagina(pagina, user_id, ahora, autores=None):
     """Página del prototipo (content/about.md) → fila para `pages` en Chyrp Lite."""
     slug = slugify(pagina["slug"])
     visible = 0 if pagina["draft"] else 1
+    uid = resolver_autor(pagina, user_id, autores)
     return {
         "title": pagina["titulo"],
         "body": pagina["cuerpo"],
@@ -128,7 +143,7 @@ def transformar_pagina(pagina, user_id, ahora):
         "list_order": 0,
         "clean": slug,
         "url": slug,
-        "user_id": user_id,
+        "user_id": uid,
         "parent_id": 0,
         "created_at": fecha_chyrp(pagina["fecha"], ahora),
         "updated_at": SQL_DATETIME_ZERO,
@@ -167,6 +182,10 @@ def buscar_autor(con, login):
     if fila is None or fila[0] is None:
         sys.exit("migrar.py: no encuentro ese autor en la tabla users")
     return fila[0]
+
+
+def mapa_autores(con):
+    return {login: uid for uid, login in con.execute("SELECT id, login FROM users")}
 
 
 def existe(con, url):
@@ -250,9 +269,10 @@ def main():
 
     con = sqlite3.connect(args.destino)
     user_id = buscar_autor(con, args.autor)
+    autores = mapa_autores(con)
     con.close()
 
-    filas = [transformar(e, user_id, ahora) for e in entradas]
+    filas = [transformar(e, user_id, ahora, autores) for e in entradas]
     resultado = cargar(args.destino, filas, args.simulacro)
 
     for estado, url in resultado:
@@ -262,7 +282,7 @@ def main():
           f"{len(entradas) - nuevas} ya estaban")
 
     if paginas:
-        filas_pag = [transformar_pagina(p, user_id, ahora) for p in paginas]
+        filas_pag = [transformar_pagina(p, user_id, ahora, autores) for p in paginas]
         res_pag = cargar_paginas(args.destino, filas_pag, args.simulacro)
         for estado, url in res_pag:
             print(f"{estado:9} {url} (página)")
